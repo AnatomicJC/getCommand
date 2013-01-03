@@ -1,0 +1,18 @@
+file fichier:
+    Les applis msi sont reconnues en tant que "Composite Document File V2 Document", Name of Creating Application: Windows Installer
+    Toutes les autres sont reconnues en tant que PE32
+    Les autres fichiers (reg, bat): ASCII text
+
+Applis PE32 avec strings:
+    NSIS:
+        <assemblyIdentity
+            name="Nullsoft.NSIS.exehead"
+    Inno Setup:
+        <assemblyIdentity
+            name="JR.Inno.Setup"
+
+
+    Firefox:
+        <assemblyIdentity name="7zS.sfx.exe"
+
+        un "grep Mozilla" sur Firefox et Thunderbird matche
