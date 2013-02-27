@@ -3,7 +3,7 @@
 
 import os
 import logging
-from BeautifulSoup import BeautifulSoup
+from xml.dom import minidom
 
 BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE = range(8)
 
@@ -23,7 +23,7 @@ def formatter_message(message, use_color = True):
 
 COLORS = {
     'WARNING': YELLOW,
-    'debug': WHITE,
+    'INFO': WHITE,
     'DEBUG': BLUE,
     'CRITICAL': YELLOW,
     'ERROR': RED
@@ -49,7 +49,9 @@ class getCommand(object):
         strings_command = 'strings "%s"' % self.file
         strings_data = os.popen(strings_command).read()
         xml_pos = strings_data.find('<?xml')
-        return BeautifulSoup(strings_data[xml_pos:])
+        strings_data = strings_data[xml_pos:]
+        end_pos = strings_data.find('</assembly>') + 11
+        return strings_data[:end_pos]
 
     def getFileData(self):
         file_command = 'file "%s"' % self.file
@@ -97,10 +99,18 @@ class getCommand(object):
             # Not an MSI file, maybe InnoSetup or NSIS
             log.debug("%s is a PE32 executable" % self.file)
             installer = None
-            if strings_data.find('assemblyidentity'):
-                installer = strings_data.assemblyidentity["name"]
-            elif strings_data.find('assemblyIdentity'):
-                installer = strings_data.assemblyIdentity["name"]
+
+            if strings_data.startswith('<?xml'):
+                xmldoc = minidom.parseString(strings_data)
+                identity = xmldoc.getElementsByTagName('assemblyidentity')
+
+                if len(identity) == 0:
+                    # if assemblyIdentity don't exists, try assemblyIdentity
+                    identity = xmldoc.getElementsByTagName('assemblyIdentity')
+
+                if identity > 0:
+                    if identity[0].hasAttribute('name'):
+                        installer = identity[0].getAttribute('name')
 
             if installer == "JR.Inno.Setup":
                 log.debug("InnoSetup detected")
@@ -142,7 +152,7 @@ class getCommand(object):
             return log.info("I don't know what to do with %s (%s)" % (self.file, file_data[self.file]))
 
 if __name__ == "__main__":
-    level = logging.INFO
+    level = logging.DEBUG
     log = logging.getLogger('getCommand')
     log.setLevel(level)
     formatter = ColoredFormatter("%(levelname)-18s %(message)s")
