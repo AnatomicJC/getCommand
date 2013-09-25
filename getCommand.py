@@ -4,6 +4,7 @@
 import os
 import logging
 from xml.dom import minidom
+from optparse import OptionParser
 
 BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE = range(8)
 
@@ -42,8 +43,9 @@ class ColoredFormatter(logging.Formatter):
         return logging.Formatter.format(self, record)
 
 class getCommand(object):
-    def __init__(self, file):
+    def __init__(self, file, log = False):
         self.file = file
+        self.logger = log and log or logging.getLogger()
 
     def getStringsData(self):
         strings_command = 'strings "%s"' % self.file
@@ -69,38 +71,50 @@ class getCommand(object):
         return d
 
     def getInnoCommand(self):
-        return '"./%s" /SP /VERYSILENT /NORESTART' % self.file
+        return './"%s" /SP /VERYSILENT /NORESTART' % self.file.split('/').pop()
 
     def getNSISCommand(self):
-        return '"./%s" /S' % self.file
+        return './"%s" /S' % self.file.split('/').pop()
 
     def getMozillaCommand(self):
-        return '"./%s" -ms' % self.file
+        return './"%s" -ms' % self.file.split('/').pop()
 
     def getMSI32Command(self):
-        return 'msiexec /i "%s" /qn ALLUSERS=1' % self.file
+        return 'msiexec /qn /i "%s" ALLUSERS=1 CREATEDESKTOPLINK=0 ISCHECKFORPRODUCTUPDATES=0' % self.file.split('/').pop()
+
+    def getMSI32UpdateCommand(self):
+        """
+        Command for *.msp files (MSI update packages)
+        """
+        return 'msiexec /p "%s" /qb REINSTALLMODE="ecmus" REINSTALL="ALL"' % self.file.split('/').pop()
 
     def getMSI64Command(self):
-        return '$(cygpath -W)/sysnative/msiexec /i "%s" /qn ALLUSERS=1' % self.file
+        return '$(cygpath -W)/sysnative/msiexec /qn /i "%s" ALLUSERS=1 CREATEDESKTOPLINK=0 ISCHECKFORPRODUCTUPDATES=0' % self.file.split('/').pop()
+
+    def getMSI64UpdateCommand(self):
+        """
+        Command for *.msp files (MSI update packages 64-bits)
+        """
+        return '$(cygpath -W)/sysnative/msiexec /p "%s" /qb REINSTALLMODE="ecmus" REINSTALL="ALL"' % self.file.split('/').pop()
 
     def getRegCommand(self):
-        return 'regedit /s "%s"' % self.file
+        return 'regedit /s "%s"' % self.file.split('/').pop()
 
     def getBatCommand(self):
-        return 'cmd.exe /c "%s"' % self.file
+        return 'cmd.exe /c "%s"' % self.file.split('/').pop()
 
     def getShCommand(self):
-        return './"%s"' % self.file
+        return './"%s"' % self.file.split('/').pop()
 
     def getCommand(self):
-        log.debug("Parsing %s:" % self.file)
+        self.logger.debug("Parsing %s:" % self.file)
 
         strings_data = self.getStringsData()
         file_data = self.getFileData()
 
         if "PE32 executable" in file_data[self.file]:
             # Not an MSI file, maybe InnoSetup or NSIS
-            log.debug("%s is a PE32 executable" % self.file)
+            self.logger.debug("%s is a PE32 executable" % self.file)
             installer = None
 
             if strings_data.startswith('<?xml'):
@@ -116,48 +130,73 @@ class getCommand(object):
                         installer = identity[0].getAttribute('name')
 
             if installer == "JR.Inno.Setup":
-                log.debug("InnoSetup detected")
+                self.logger.debug("InnoSetup detected")
                 return self.getInnoCommand()
             elif installer == "Nullsoft.NSIS.exehead":
-                log.debug("NSIS detected")
+                self.logger.debug("NSIS detected")
                 return self.getNSISCommand()
             elif installer == "7zS.sfx.exe":
-                log.debug("7zS.sfx detected (Mozilla app inside ?)")
+                self.logger.debug("7zS.sfx detected (Mozilla app inside ?)")
                 if not os.system("grep Mozilla '%s' > /dev/null" % self.file): # return code is 0 if file match
-                    log.debug("Mozilla App detected")
+                    self.logger.debug("Mozilla App detected")
                     return self.getMozillaCommand()
                 else:
-                    return log.info("I can't get a command for %s" % self.file)
+                    return self.logger.info("I can't get a command for %s" % self.file)
             else:
-                return log.info("I can't get a command for %s" % self.file)
+                return self.logger.info("I can't get a command for %s" % self.file)
 
-        elif file_data[self.file] == "Composite Document File V2 Document Little Endian":
+        elif "Document Little Endian" in file_data[self.file]:
             # MSI files
             if "Template" in file_data:
                 if "x64" in file_data['Template']:
-                    log.debug("%s is a x64 MSI file" % self.file)
-                    return self.getMSI64Command()
+                    if self.file.endswith('.msp'):
+                        self.logger.debug("%s is a x64 MSI Update file" % self.file)
+                        return self.getMSI64UpdateCommand()
+                    else:
+                        self.logger.debug("%s is a x64 MSI file" % self.file)
+                        return self.getMSI64Command()
                 elif "Intel" in file_data['Template']:
-                    log.debug("%s is a 32-bit MSI file" % self.file)
-                    return self.getMSI32Command()
+                    if self.file.endswith('.msp'):
+                        self.logger.debug("%s is a 32-bit MSI Update file" % self.file)
+                        return self.getMSI32UpdateCommand()
+                    else:
+                        self.logger.debug("%s is a 32-bit MSI file" % self.file)
+                        return self.getMSI32Command()
                 else:
-                    return log.info("I can't get a command for %s" % self.file)
+                    return self.logger.info("I can't get a command for %s" % self.file)
             else:
-                return log.info("No Template Key for %s" % self.file)
+                return self.logger.info("No Template Key for %s" % self.file)
         elif self.file.endswith(".reg"):
-            log.debug("Reg file detected")
+            self.logger.debug("Reg file detected")
             return self.getRegCommand()
         elif self.file.endswith(".bat"):
-            log.debug("MS-DOS Batch file detected")
+            self.logger.debug("MS-DOS Batch file detected")
             return self.getBatCommand()
         elif self.file.endswith(".sh"):
             self.logger.debug("sh file detected")
             return self.getShCommand()
         else:
-            return log.info("I don't know what to do with %s (%s)" % (self.file, file_data[self.file]))
+            return self.logger.info("I don't know what to do with %s (%s)" % (self.file, file_data[self.file]))
 
 if __name__ == "__main__":
-    level = logging.DEBUG
+    parser = OptionParser()
+    parser.add_option("-d", "--debug", action="store_true", dest="debug", default=False,
+                      help="Print debug messages")
+    parser.add_option("--dir", dest="dir", default=False,
+                      help="Directory who will be analyzed (default current directory)")
+
+    # Parse and analyse args
+    (options, args) = parser.parse_args()
+    if options.debug:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+
+    if options.dir:
+        dir = options.dir
+    else:
+        dir = '.'
+
     log = logging.getLogger('getCommand')
     log.setLevel(level)
     formatter = ColoredFormatter("%(levelname)-18s %(message)s")
@@ -166,9 +205,8 @@ if __name__ == "__main__":
     #handler_stream.setLevel(level)
     log.addHandler(handler_stream)
 
-    for file in os.listdir('.'):
-        c = getCommand(file)
+    for file in os.listdir(dir):
+        c = getCommand(file, log)
         command = c.getCommand()
         if command is not None:
             log.info("%s: %s" % (file, command))
-        print
